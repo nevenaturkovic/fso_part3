@@ -21,6 +21,7 @@
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^4.17.2",
+    "heroku": "^7.59.2",
     "morgan": "^1.10.0"
   },
   "devDependencies": {
