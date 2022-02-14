@@ -1,11 +1,15 @@
+if (process.env.NODE_ENV !== "production") {
+  require("dotenv").config()
+}
 const express = require("express")
+const bodyParser = require("body-parser")
 const morgan = require("morgan")
 const app = express()
 const cors = require("cors")
-require("dotenv").config()
 const Person = require("./models/person")
 
 app.use(express.static("build"))
+app.use(bodyParser.json())
 app.use(cors())
 app.use(express.json())
 
@@ -15,16 +19,6 @@ app.use(
     ":method :url :status :res[content-length] - :response-time ms :jsoncontent"
   )
 )
-
-const errorHandler = (error, request, response, next) => {
-  console.error(error.message)
-
-  if (error.name === "CastError") {
-    return response.status(400).send({ error: "malformatted id" })
-  }
-
-  next(error)
-}
 
 app.get("/info", (request, response) => {
   const numberOfPersons = Person.estimatedDocumentCount().then((count) => {
@@ -41,8 +35,9 @@ app.get("/api/persons", (request, response) => {
   })
 })
 
-app.post("/api/persons", (request, response) => {
+app.post("/api/persons", (request, response, next) => {
   const body = request.body
+  const personName = body.name
 
   if (body === undefined) {
     return response.status(400).json({ error: "content missing" })
@@ -53,9 +48,18 @@ app.post("/api/persons", (request, response) => {
     number: body.number,
   })
 
-  person.save().then((savedPerson) => {
-    response.json(savedPerson)
-  })
+  person
+    .save()
+    .then((savedPerson) => {
+      response.json(savedPerson.toJSON())
+    })
+    .catch((error) => {
+      console.log("post error", error)
+      return next({
+        message: "Person already exists.",
+        name: "DuplicatePerson"
+      })
+    })
 })
 
 app.get("/api/persons/:id", (request, response, next) => {
@@ -73,7 +77,17 @@ app.get("/api/persons/:id", (request, response, next) => {
 app.delete("/api/persons/:id", (request, response, next) => {
   Person.findByIdAndRemove(request.params.id)
     .then((result) => {
-      response.status(204).end()
+      console.log(result)
+      if (result === null) {
+        // Person didn't exist.
+        next({
+          name: "NonExistentError",
+          message: "Such person doesn't exist.",
+        })
+      } else {
+        // Person existed but we deleted it.
+        response.status(204).end()
+      }
     })
     .catch((error) => next(error))
 })
@@ -86,7 +100,10 @@ app.put("/api/persons/:id", (request, response, next) => {
     number: body.number,
   }
 
-  Person.findByIdAndUpdate(request.params.id, person, { new: true })
+  Person.findByIdAndUpdate(request.params.id, person, {
+    new: true,
+    runValidators: true,
+  })
     .then((updatedPerson) => {
       response.json(updatedPerson)
     })
@@ -98,6 +115,23 @@ const unknownEndpoint = (request, response) => {
 }
 
 app.use(unknownEndpoint)
+
+const errorHandler = (error, request, response, next) => {
+  console.error(error.message)
+
+  if (error.name === "CastError") {
+    return response.status(400).send({ error: "malformatted id" })
+  } else if (error.name === "ValidationError") {
+    return response.status(400).json({ error: error.message })
+  } else if (error.name === "DuplicatePerson") {
+    return response.status(409).json({ error: error.message })
+
+  } else {
+    console.log("unhandled error", error)
+  }
+
+  next(error)
+}
 
 // this has to be the last loaded middleware.
 app.use(errorHandler)
