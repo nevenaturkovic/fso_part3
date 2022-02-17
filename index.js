@@ -13,7 +13,9 @@ app.use(bodyParser.json())
 app.use(cors())
 app.use(express.json())
 
-morgan.token("jsoncontent", (request, response) => JSON.stringify(request.body))
+morgan.token("jsoncontent", (request, _response) =>
+  JSON.stringify(request.body)
+)
 app.use(
   morgan(
     ":method :url :status :res[content-length] - :response-time ms :jsoncontent"
@@ -21,7 +23,7 @@ app.use(
 )
 
 app.get("/info", (request, response) => {
-  const numberOfPersons = Person.estimatedDocumentCount().then((count) => {
+  Person.estimatedDocumentCount().then((count) => {
     response.send(`
     <p>Phonebook has info for ${count} people</p>
     <p>${new Date()}</p>
@@ -37,7 +39,6 @@ app.get("/api/persons", (request, response) => {
 
 app.post("/api/persons", (request, response, next) => {
   const body = request.body
-  const personName = body.name
 
   if (body === undefined) {
     return response.status(400).json({ error: "content missing" })
@@ -54,11 +55,18 @@ app.post("/api/persons", (request, response, next) => {
       response.json(savedPerson.toJSON())
     })
     .catch((error) => {
-      console.log("post error", error)
-      return next({
-        message: "Person already exists.",
-        name: "DuplicatePerson"
-      })
+      console.log("start error", error)
+
+      if ("message" in error && "name" in error) {
+        return next(error)
+      }
+      console.log("start error", error)
+      if (error.code === 11000) {
+        return next({
+          message: "Person already exists.",
+          name: "DuplicatePerson",
+        })
+      }
     })
 })
 
@@ -125,7 +133,6 @@ const errorHandler = (error, request, response, next) => {
     return response.status(400).json({ error: error.message })
   } else if (error.name === "DuplicatePerson") {
     return response.status(409).json({ error: error.message })
-
   } else {
     console.log("unhandled error", error)
   }
